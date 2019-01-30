@@ -12,10 +12,8 @@ class SckemaTest {
 
     @Test
     fun `do something`() {
-        val sckemaBuilder = Sckema.Builder()
-        val sckema = loadFile("azure.json")
-        with(sckemaBuilder) {
-            sckema.extract("com.sckema", "Parent")
+        Sckema {
+            loadFile("azure.json").extract("com.sckema", "Parent")
             classPool.forEach(::println)
             references.forEach(::println)
         }

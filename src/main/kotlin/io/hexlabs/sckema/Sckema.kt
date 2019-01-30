@@ -1,10 +1,17 @@
 package io.hexlabs.sckema
 
-class Sckema{
+class Sckema(val types: List<SckemaType>){
+
+    companion object {
+        operator fun invoke(builder: Sckema.Builder.() -> Unit = { }) = Sckema.Builder().run { builder(); build() }
+    }
+
     class Builder {
-        val classPool = mutableListOf<SckemaType>()
         private val names = mutableMapOf<String, Int>()
+        val classPool = mutableListOf<SckemaType>()
         val references = mutableMapOf<String, SckemaType>()
+
+        fun build() = Sckema(classPool)
 
         private fun nameFrom(key: String) = key.capitalize().let { canditate ->
             names[canditate] = (names[canditate] ?: 0) + 1
