@@ -37,7 +37,7 @@ class Sckema(val types: List<SckemaType>){
                     anyOf != null -> SchemaExtractor(pkg, newName()).extractAnyOf(anyOf)
                     allOf != null -> SchemaExtractor(pkg, newName()).extractAllOf(allOf)
                     oneOf != null -> SchemaExtractor(pkg, newName()).extractOneOf(oneOf)
-                    `$ref` != null -> SchemaExtractor(pkg, name).extractReferenceFrom(`$ref`)
+                    `$ref` != null -> SchemaExtractor(pkg, key ?: name).extractReferenceFrom(`$ref`)
                     else -> when(SchemaType.from(type)){
                         is SchemaType.OBJECT -> SchemaExtractor(pkg, newName()).extractObjectFrom(this)
                         is SchemaType.ARRAY -> SchemaExtractor(pkg, newName()).extractArrayFrom(this)
