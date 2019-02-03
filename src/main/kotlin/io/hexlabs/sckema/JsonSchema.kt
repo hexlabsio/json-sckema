@@ -1,5 +1,8 @@
 package io.hexlabs.sckema
 
+import com.fasterxml.jackson.annotation.JsonAnyGetter
+import com.fasterxml.jackson.annotation.JsonAnySetter
+import com.fasterxml.jackson.annotation.JsonIgnore
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.core.JsonParser
 import com.fasterxml.jackson.databind.DeserializationContext
@@ -7,12 +10,14 @@ import com.fasterxml.jackson.databind.JsonDeserializer
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
+import com.fasterxml.jackson.databind.annotation.JsonSerialize
 import com.fasterxml.jackson.databind.module.SimpleModule
 import java.math.BigDecimal
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class JsonSchema(
         val `$id`: String? = null,
+        val `$schema`: String? = null,
         val title: String? = null,
         val description: String? = null,
         val default: Any? = null,
@@ -36,13 +41,17 @@ data class JsonSchema(
         val minimum: BigDecimal? = null,
         val exclusiveMinimum: BigDecimal? = null,
         private val `$comment`: String? = null,
-        @JsonDeserialize(using = DefinitionsDeserializer::class) val definitions: JsonDefinitions? = null,
         @JsonDeserialize(using = DefinitionsDeserializer::class) val properties: JsonDefinitions? = null,
         val oneOf: List<JsonSchema>? = null,
         val allOf: List<JsonSchema>? = null,
         val anyOf: List<JsonSchema>? = null,
-        val metadata: Map<String, String>? = null
-): JsonOrStringDefinition
+        val metadata: Map<String, String>? = null,
+        @JsonIgnore val otherProperties: MutableMap<String, Map<String, JsonSchema>> = mutableMapOf()
+): JsonOrStringDefinition {
+    @JsonAnySetter @JsonDeserialize(using = AnyDeserializer::class) fun set(name: String, value: Any?) {
+        if(value != null && value is Map<*,*>) otherProperties[name] = value as Map<String, JsonSchema>
+    }
+}
 
 
 interface JsonOrStringDefinition
@@ -51,6 +60,20 @@ data class JsonStringDefinition(val value: String = ""): JsonOrStringDefinition
 data class JsonDefinitions(val definitions: Map<String, JsonOrStringDefinition>)
 data class JsonTypes(val types: List<String>)
 data class JsonItems(val schemas: List<JsonSchema>)
+
+class AnyDeserializer: JsonDeserializer<Any>(){
+    override fun deserialize(parser: JsonParser, context: DeserializationContext): Map<String, JsonSchema>? {
+        val codec = parser.codec
+        val node: JsonNode = codec.readTree(parser)
+        return if(node.isObject) {
+            node.fields().asSequence().mapNotNull {
+                if(it.value.isObject) it.key to codec.treeToValue(it.value, JsonSchema::class.java)
+                else null
+            }.toMap()
+        }
+        else null
+    }
+}
 
 class AdditionalPropertiesDeserializer: JsonDeserializer<AdditionalProperties>(){
     override fun deserialize(parser: JsonParser, context: DeserializationContext): AdditionalProperties {
@@ -101,4 +124,5 @@ fun ObjectMapper.forSckema() = registerModule(SimpleModule().apply {
     addDeserializer(JsonTypes::class.java, TypesDeserializer())
     addDeserializer(JsonItems::class.java, ItemsDeserializer())
     addDeserializer(AdditionalProperties::class.java, AdditionalPropertiesDeserializer())
+    addDeserializer(Any::class.java, AnyDeserializer())
 })

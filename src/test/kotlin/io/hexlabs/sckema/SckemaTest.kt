@@ -3,6 +3,7 @@ package io.hexlabs.sckema
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import org.junit.Test
+import java.io.File
 import java.math.BigDecimal
 import kotlin.test.expect
 
@@ -23,11 +24,10 @@ class SckemaTest {
 
     @Test
     fun `do something`() {
-        Sckema {
-            loadFile("azure.json").extract("com.sckema", "Parent")
-            classPool.forEach(::println)
-            references.forEach(::println)
+        val sckemas = SckemaResolver { loadFile("azure.json").resolve() }.flatMap {
+            Transpiler().transpile(it)
         }
+        sckemas.forEach { it.writeTo(File("out/production/generated-sources")) }
     }
 
     @Test
@@ -51,7 +51,7 @@ class SckemaTest {
             "two" to SckemaType.IntegerType,
             "three" to SckemaType.NumberType,
             "four" to SckemaType.BooleanType,
-            "five" to SckemaType.Reference("five", "#/definitions/otherType"),
+            "five" to SckemaType.Reference("five", "#/definitions/otherType", "/definitions/otherType"),
             "six" to SckemaType.RemoteReference("six", "http://other.type")
         ))) { sckema.types[0] }
 

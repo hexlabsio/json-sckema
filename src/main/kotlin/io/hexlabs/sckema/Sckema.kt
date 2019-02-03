@@ -1,38 +1,52 @@
 package io.hexlabs.sckema
 
-class Sckema(val types: List<SckemaType>){
+data class Sckema(val id: String, val types: List<SckemaType>, val references: Map<String, SckemaType>, val remoteReferences: List<SckemaType.RemoteReference>){
 
     companion object {
-        operator fun invoke(builder: Sckema.Builder.() -> Unit = { }) = Sckema.Builder().run { builder(); build() }
+        operator fun invoke(referenceList: List<Sckema> = emptyList(), builder: Sckema.Builder.() -> Unit = { }) = Sckema.Builder(referenceList).run { builder(); build() }
     }
 
-    class Builder {
+    fun findReference(reference: String) = if(id == reference.substringBefore("#")){
+        references["#" + reference.substringAfter("#").let { if(it.startsWith("/")) it else "/$it" }]
+    }
+    else null
+
+    class Builder(private val referenceList: List<Sckema>) {
+        private var id: String = ""
         private val names = mutableMapOf<String, Int>()
         val classPool = mutableListOf<SckemaType>()
-        val references = mutableMapOf<String, SckemaType>()
+        private val references = mutableMapOf<String, SckemaType>()
+        val remoteReferences = mutableListOf<SckemaType.RemoteReference>()
 
-        fun build() = Sckema(classPool)
+        fun findReference(reference: String) = referenceList.find { it.findReference(reference) != null }?.findReference(reference)
 
-        private fun nameFrom(key: String) = key.capitalize().let { canditate ->
-            names[canditate] = (names[canditate] ?: 0) + 1
-            names[canditate].let { index ->
-                if(index == 1) canditate else "$canditate$index"
+        fun build() = Sckema(id, classPool, references, remoteReferences)
+
+        private val uriRegex = Regex("^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?")
+
+        private fun nameFromId(location: String) = if(uriRegex.matches(location)) {
+            location.substringAfterLast("/").substringBefore(".json").split(".").last()
+        } else null
+
+        private fun nameFrom(pkg: String, key: String) = key.capitalize().let { candidate ->
+            names["$pkg.$candidate"] = (names["$pkg.$candidate"] ?: 0) + 1
+            names["$pkg.$candidate"].let { index ->
+                if(index == 1) candidate else "$candidate$index"
             }
         }
 
-        private fun JsonSchema.definitions() = definitions?.definitions.orEmpty().filter { it.value is JsonSchema }.map { it.key to it.value as JsonSchema }
-
         fun JsonSchema.extract(pkg: String, name: String): SckemaType {
-            return SchemaExtractor(pkg, name).run {
-                references.putAll(definitions().map { (key, value) -> "#/definitions/$key" to value.extract(key) })
+            id = `$id`?.substringBeforeLast("#") ?: ""
+            return SchemaExtractor(pkg, `$id`?.let { nameFromId(it) } ?: name).run {
+                references.putAll(otherProperties.flatMap { (propKey, propValue) -> propValue.map { (key, value) ->  "#/$propKey/$key" to value.extract(key) } })
                 extract()
             }
         }
 
-        inner class SchemaExtractor(val pkg: String, val name: String){
+        inner class SchemaExtractor(private val pkg: String, private val name: String){
 
             fun JsonSchema.extract(key: String? = null): SckemaType {
-                fun newName() = nameFrom(key ?: name)
+                fun newName() = nameFrom(pkg, key ?: name)
                 return when {
                     anyOf != null -> SchemaExtractor(pkg, newName()).extractAnyOf(anyOf)
                     allOf != null -> SchemaExtractor(pkg, newName()).extractAllOf(allOf)
@@ -53,14 +67,16 @@ class Sckema(val types: List<SckemaType>){
             private fun extractObjectFrom(schema: JsonSchema): SckemaType = schema.properties?.definitions.orEmpty()
                     .filter { it.value is JsonSchema }
                     .map { it.key to (it.value as JsonSchema).extract(it.key) }
-                    .toMap()
-                    .let { properties -> SckemaType.JsonClass(pkg, name, properties).also { classPool.add(it) } }
+                    .let { properties ->
+                        val additionalProperties = schema.additionalProperties.let { if(it.include) it.type?.extract() ?: SckemaType.AnyType else null }
+                        SckemaType.JsonClass(pkg, name, properties.toMap(), additionalProperties).also { classPool.add(it) }
+                    }
 
             private fun extractArrayFrom(schema: JsonSchema): SckemaType = SckemaType.ListType(schema.items?.schemas.orEmpty().map { it.extract("${name}Item") })
 
             private fun extractReferenceFrom(reference: String): SckemaType =
-                if(reference.startsWith("#/")) SckemaType.Reference(name, reference)
-                else SckemaType.RemoteReference(name, reference)
+                if(reference.startsWith("#/")) SckemaType.Reference(name, reference, id + reference)
+                else findReference(reference) ?: SckemaType.RemoteReference(name, reference).also { remoteReferences.add(it) }
 
             private fun extractAllOf(schemas: List<JsonSchema>): SckemaType = SckemaType.AllOf(schemas.map { it.extract(name) })
 
