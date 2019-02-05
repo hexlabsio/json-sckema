@@ -8,17 +8,17 @@ data class SckemaClassName(val pkg: String, val name: String)
 
 class SckemaResolver {
 
-    private fun String.escape() = replace(Regex("[^a-zA-Z.]"), "X")
+    private fun String.escape() = replace("-","_").replace(Regex("[^a-zA-Z.0-9_]"), "").let { if(!it[0].isLetter()) "v$it" else it }
 
-    val defaultNameResolver = { schema: JsonSchema ->
+    private val defaultNameResolver = { schema: JsonSchema ->
         schema.`$id`?.substringBeforeLast("#")?.let {
-            val parts = it.substringAfter("://").split("/")
-            val reverseDomain = parts[0].split(".").reversed().joinToString(".")
+            val parts = it.substringAfter("://").split("/").map { part -> part.escape() }
+            val reverseDomain = parts[0].split(".").reversed().map { part -> part.escape() }.joinToString(".")
             val others = parts.subList(1, parts.size - 1).joinToString(".")
-            val name = parts.last().substringBefore(".json").split(".")
-            val packageParts = name.dropLast(1).joinToString(".").let { if (it.isEmpty()) null else it.decapitalize() }
-            val pkg = listOfNotNull(reverseDomain, others, packageParts).joinToString(".").escape()
-            val className = name.last().capitalize().escape()
+            val name = parts.last().substringBefore(".json").split(".").map { part -> part.escape() }
+            val packageParts = name.dropLast(1).joinToString(".").let { part -> if (part.isEmpty()) null else part.decapitalize() }
+            val pkg = listOfNotNull(reverseDomain, others, packageParts).joinToString(".")
+            val className = name.last().capitalize()
             SckemaClassName(pkg, className)
         } ?: SckemaClassName("com.sckema.unknown", "Unknown")
     }
