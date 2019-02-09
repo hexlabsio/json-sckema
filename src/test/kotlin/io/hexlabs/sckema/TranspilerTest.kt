@@ -114,14 +114,13 @@ class TranspilerTest {
 
     private fun transpile(schema: JsonSchema, pkg: String = "a", name: String = "B", fileSpecs: List<FileSpec>.() -> Unit) {
         Transpiler {
-            Sckema.Extractor { schema.extract(pkg = pkg, name = name) }.transpile()
-            this.fileSpecs.apply(fileSpecs)
+            val files = Sckema.Extractor { schema.extract(pkg = pkg, name = name) }.transpile().apply(fileSpecs)
         }
     }
 
     private inline fun <reified T : Any> matchesPrimitive() { Transpiler {
-        singlePropertySckema<T>("abc").transpile()
-        expect(T::class.asTypeName()) { (fileSpecs.first().members.first() as TypeSpec).propertySpecs.first().type }
+        val files = singlePropertySckema<T>("abc").transpile()
+        expect(T::class.asTypeName()) { (files.first().members.first() as TypeSpec).propertySpecs.first().type }
     } }
 
     private inline fun <reified T : Any> singlePropertySckema(name: String) = Sckema.Extractor {

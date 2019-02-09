@@ -73,11 +73,11 @@ data class Sckema(val id: String, val types: List<SckemaType>, val references: M
                 if (reference.startsWith("#")) SckemaType.Reference(name, reference).also { localReferences.add(it) }
                 else findReference(reference) ?: SckemaType.RemoteReference(name, reference).also { remoteReferences.add(it) }
 
-            private fun extractAllOf(schemas: List<JsonSchema>): SckemaType = SckemaType.AllOf(schemas.map { it.extract(name) })
+            private fun extractAllOf(schemas: List<JsonSchema>): SckemaType = SckemaType.AllOf(pkg, name, schemas.map { it.extract(name) })
 
-            private fun extractAnyOf(schemas: List<JsonSchema>): SckemaType = SckemaType.AnyOf(schemas.map { it.extract(name) })
+            private fun extractAnyOf(schemas: List<JsonSchema>): SckemaType = SckemaType.AnyOf(pkg, name, schemas.map { it.extract(name) })
 
-            private fun extractOneOf(schemas: List<JsonSchema>): SckemaType = SckemaType.OneOf(schemas.map { it.extract(name) })
+            private fun extractOneOf(schemas: List<JsonSchema>): SckemaType = SckemaType.OneOf(pkg, name, schemas.map { it.extract(name) })
         }
         companion object {
             operator fun invoke(referenceList: List<Sckema> = emptyList(), builder: Sckema.Extractor.() -> Unit = { }) = Sckema.Extractor(referenceList).run { builder(); build() }

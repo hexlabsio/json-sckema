@@ -22,23 +22,23 @@ sealed class SchemaType(val types: JsonTypes) {
     }
 }
 
-sealed class SckemaType {
+sealed class SckemaType(val primitive: Boolean = false) {
     data class JsonClass(val pkg: String, val name: String, val properties: Map<String, SckemaType>, val additionalProperties: SckemaType? = null) : SckemaType()
     data class EnumType(val pkg: String, val name: String, val values: List<String>) : SckemaType()
     data class Reference(val key: String, val reference: String, var resolvedType: SckemaType? = null) : SckemaType()
     data class RemoteReference(val key: String, val reference: String, var resolvedType: SckemaType? = null) : SckemaType()
     data class ListType(val types: List<SckemaType>) : SckemaType()
-    data class AllOf(val types: List<SckemaType>) : SckemaType()
-    data class AnyOf(val types: List<SckemaType>) : SckemaType()
-    data class OneOf(val types: List<SckemaType>) : SckemaType()
+    data class AllOf(val pkg: String, val name: String, val types: List<SckemaType>) : SckemaType()
+    data class AnyOf(val pkg: String, val name: String, val types: List<SckemaType>) : SckemaType()
+    data class OneOf(val pkg: String, val name: String, val types: List<SckemaType>) : SckemaType()
 
     object AnyType : SckemaType()
-    object BooleanType : SckemaType()
-    object IntegerType : SckemaType()
-    object NumberType : SckemaType()
+    object BooleanType : SckemaType(true)
+    object IntegerType : SckemaType(true)
+    object NumberType : SckemaType(true)
     object NotFoundType : SckemaType()
 
-    data class StringType(val description: String? = null, val enum: List<String>? = null) : SckemaType() {
+    data class StringType(val description: String? = null, val enum: List<String>? = null) : SckemaType(true) {
         companion object {
             fun from(schema: JsonSchema) = StringType(description = schema.description, enum = schema.enum)
         }

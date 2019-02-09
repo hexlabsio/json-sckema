@@ -5,45 +5,101 @@ import com.fasterxml.jackson.annotation.JsonAnySetter
 import com.fasterxml.jackson.annotation.JsonIgnore
 import com.squareup.kotlinpoet.*
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
+import sun.text.normalizer.UTF16.append
 import java.math.BigDecimal
 import kotlin.reflect.KClass
 
 class Transpiler {
 
-    val fileSpecs: MutableList<FileSpec> = mutableListOf()
+    private val fileMappings: MutableMap<Pair<String, String>, TypeName> = mutableMapOf()
+    private val typeMappings: MutableMap<TypeName, TypeSpec> = mutableMapOf()
 
-    fun Sckema.transpile() = types.forEach { it.transpile() }.let { fileSpecs }
+    fun Sckema.transpile(): List<FileSpec> = types.forEach { it.transpile() }.let { fileMappings.map {
+            (name, typeName) -> FileSpec.get(name.first, typeMappings[typeName]!!)
+    } }
 
-    private fun SckemaType.transpile(): TypeName? = when (this) {
-        is SckemaType.JsonClass -> transpile().let { fileSpecs.add(it); ClassName(it.packageName, it.name) }
-        is SckemaType.EnumType -> transpile().let { fileSpecs.add(it); ClassName(it.packageName, it.name) }
+    private fun append(type: TypeSpec, pkg: String, name: String) = ClassName(pkg, name).also { typeName ->
+        fileMappings[pkg to name] = typeName
+        typeMappings[typeName] = type
+    }
+
+    private fun SckemaType.transpile(): TypeName = when (this) {
+        is SckemaType.JsonClass -> transpile()
+        is SckemaType.EnumType -> transpile()
         is SckemaType.StringType -> String::class.asTypeName()
         is SckemaType.BooleanType -> Boolean::class.asTypeName()
         is SckemaType.NumberType -> BigDecimal::class.asTypeName()
         is SckemaType.IntegerType -> Int::class.asTypeName()
-        is SckemaType.Reference -> resolvedType.let {
-            with(resolvedType) { when(this) {
-                is SckemaType.JsonClass -> ClassName(pkg, name)
-                else -> resolvedType?.transpile()
-            } }
+        is SckemaType.AllOf -> {
+            if(types.size == 1) types.first().transpile()
+            else transpile()
         }
+        is SckemaType.AnyOf -> {
+            if(types.size == 1) types.first().transpile()
+            else transpile()
+        }
+        is SckemaType.OneOf -> {
+            if(types.size == 1) types.first().transpile()
+            else transpile()
+        }
+        is SckemaType.Reference -> if(reference == "#")
+            (resolvedType as SckemaType.JsonClass).let { ClassName(it.pkg, it.name) }
+            else resolvedType?.transpile() ?: Any::class.asTypeName()
         else -> Any::class.asTypeName()
     }
 
-    fun SckemaType.JsonClass.transpile() = FileSpec.get(pkg, TypeSpec.classBuilder(name)
-        .parameters(this.properties.mapNotNull { (key, value) -> value.transpile()?.let { key to it } })
-        .add(additionalProperties)
-        .build()
+    fun SckemaType.JsonClass.transpile() = ClassName(pkg, name).let {
+        if (!typeMappings.contains(it)) append(
+            TypeSpec.classBuilder(name)
+                .parameters(this.properties.mapNotNull { (key, value) -> key to value.transpile() })
+                .add(additionalProperties)
+                .build(),
+            pkg, name
+        )
+        else it
+    }
+
+    private fun SckemaType.EnumType.transpile() = append(
+        TypeSpec.enumBuilder(name)
+            .parameters(listOf("value" to String::class.asTypeName()))
+            .apply { values.forEach { value ->
+                addEnumConstant(SckemaResolver.run { value.escape().toUpperCase() }, TypeSpec.anonymousClassBuilder()
+                    .addSuperclassConstructorParameter("%S", value).build())
+            } }
+            .build(),
+        pkg, name
+    )
+    fun SckemaType.AnyOf.transpile(): TypeName = append(
+        TypeSpec.classBuilder(name)
+            .build(),
+        pkg, name
     )
 
-    private fun SckemaType.EnumType.transpile() = FileSpec.get(pkg, TypeSpec.enumBuilder(name)
-        .parameters(listOf("value" to String::class.asTypeName()))
-        .apply { values.forEach { value ->
-            addEnumConstant(SckemaResolver.run { value.escape().toUpperCase() }, TypeSpec.anonymousClassBuilder()
-                .addSuperclassConstructorParameter("%S", value).build())
-        } }
-        .build()
+    fun SckemaType.OneOf.transpile(): TypeName = append(
+        TypeSpec.classBuilder(name)
+            .build(),
+        pkg, name
     )
+
+    fun SckemaType.AllOf.transpile(): TypeName {
+        return if(!types.any { it.primitive }) {
+            val typeNames = types.mapNotNull { it.transpile() }
+            val typeSpecs = typeNames.mapIndexed { index, typeName ->
+                if(index == 0) typeMappings[typeName] = typeMappings[typeName]!!.open()
+                typeMappings[typeName]!!
+            }
+            val ancestor = typeNames.first()
+            val properties = typeSpecs.flatMap { it.propertySpecs }
+            append(
+                TypeSpec.classBuilder(name)
+                    .superclass(ancestor)
+                    .parameters(properties.map { it.name to it.type })
+                    .build(),
+                pkg, name
+            )
+        }
+        else Any::class.asTypeName()
+    }
 
     private fun TypeSpec.Builder.add(additionalProperties: SckemaType?) = apply {
         additionalProperties?.let {
@@ -80,6 +136,10 @@ class Transpiler {
             }
         }.build())
     }
+
+    private fun TypeSpec.open() = toBuilder()
+        .addModifiers(KModifier.OPEN)
+        .build()
 
     companion object {
         operator fun <R> invoke(transpile: Transpiler.() -> R) = Transpiler().run(transpile)
