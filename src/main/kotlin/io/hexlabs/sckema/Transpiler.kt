@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonAnySetter
 import com.fasterxml.jackson.annotation.JsonIgnore
 import com.squareup.kotlinpoet.*
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
-import sun.text.normalizer.UTF16.append
 import java.math.BigDecimal
 import kotlin.reflect.KClass
 
@@ -30,6 +29,7 @@ class Transpiler {
         is SckemaType.BooleanType -> Boolean::class.asTypeName()
         is SckemaType.NumberType -> BigDecimal::class.asTypeName()
         is SckemaType.IntegerType -> Int::class.asTypeName()
+        is SckemaType.ListType -> transpile()
         is SckemaType.AllOf -> {
             if(types.size == 1) types.first().transpile()
             else transpile()
@@ -48,7 +48,7 @@ class Transpiler {
         else -> Any::class.asTypeName()
     }
 
-    fun SckemaType.JsonClass.transpile() = ClassName(pkg, name).let {
+    private fun SckemaType.JsonClass.transpile() = ClassName(pkg, name).let {
         if (!typeMappings.contains(it)) append(
             TypeSpec.classBuilder(name)
                 .parameters(this.properties.mapNotNull { (key, value) -> key to value.transpile() })
@@ -69,21 +69,29 @@ class Transpiler {
             .build(),
         pkg, name
     )
-    fun SckemaType.AnyOf.transpile(): TypeName = append(
+
+    private fun SckemaType.ListType.transpile(): TypeName {
+        val typeNames = types.map { it.transpile() }
+        return if(typeNames.size == 1)
+            List::class.ofType(typeNames.first())
+        else Any::class.type()
+    }
+
+    private fun SckemaType.AnyOf.transpile(): TypeName = append(
         TypeSpec.classBuilder(name)
             .build(),
         pkg, name
     )
 
-    fun SckemaType.OneOf.transpile(): TypeName = append(
+    private fun SckemaType.OneOf.transpile(): TypeName = append(
         TypeSpec.classBuilder(name)
             .build(),
         pkg, name
     )
 
-    fun SckemaType.AllOf.transpile(): TypeName {
+    private fun SckemaType.AllOf.transpile(): TypeName {
         return if(!types.any { it.primitive }) {
-            val typeNames = types.mapNotNull { it.transpile() }
+            val typeNames = types.map { it.transpile() }
             val typeSpecs = typeNames.mapIndexed { index, typeName ->
                 if(index == 0) typeMappings[typeName] = typeMappings[typeName]!!.open()
                 typeMappings[typeName]!!
@@ -103,7 +111,7 @@ class Transpiler {
 
     private fun TypeSpec.Builder.add(additionalProperties: SckemaType?) = apply {
         additionalProperties?.let {
-            it.transpile()?.let { type ->
+            it.transpile().let { type ->
                 addProperty(
                     PropertySpec.builder("additionalProperties", Map::class.ofType(String::class.type(), type))
                         .addModifiers(KModifier.PRIVATE)
@@ -145,7 +153,7 @@ class Transpiler {
         operator fun <R> invoke(transpile: Transpiler.() -> R) = Transpiler().run(transpile)
 
         fun KClass<*>.type() = asTypeName()
-        fun KClass<*>.ofType(vararg types: KClass<*>) = type().parameterizedBy(*types.map { it.type() }.toTypedArray())
+        //fun KClass<*>.ofType(vararg types: KClass<*>) = type().parameterizedBy(*types.map { it.type() }.toTypedArray())
         fun KClass<*>.ofType(vararg types: TypeName) = type().parameterizedBy(*types)
     }
 }

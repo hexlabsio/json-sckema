@@ -28,7 +28,7 @@ data class Sckema(val id: String, val types: List<SckemaType>, val references: M
         fun JsonSchema.extract(pkg: String, name: String): SckemaType {
             this@Extractor.id = (`$id` ?: id)?.substringBeforeLast("#") ?: ""
             return SchemaExtractor(pkg, name).run {
-                references.putAll(otherProperties.flatMap { (propKey, propValue) -> propValue.map { (key, value) -> "#/$propKey/$key" to value.extract(key) } })
+                references.putAll(otherProperties.flatMap { (propKey, propValue) -> propValue.map { (key, value) -> "#/$propKey/$key" to value.extract(key, name) } })
                 extract().also { root ->
                     localReferences.forEach {
                         if(it.reference == "#") it.resolvedType = root
@@ -40,11 +40,11 @@ data class Sckema(val id: String, val types: List<SckemaType>, val references: M
 
         inner class SchemaExtractor(private val pkg: String, private val name: String) {
 
-            fun JsonSchema.extract(key: String? = null): SckemaType {
+            fun JsonSchema.extract(key: String? = null, parent: String? = null): SckemaType {
                 fun newName() = nameFrom(pkg, key ?: name)
                 return when {
                     anyOf != null -> SchemaExtractor(pkg, newName()).extractAnyOf(anyOf)
-                    allOf != null -> SchemaExtractor(pkg, newName()).extractAllOf(allOf)
+                    allOf != null -> SchemaExtractor(pkg, nameFrom(pkg, parent+key)).extractAllOf(allOf)
                     oneOf != null -> SchemaExtractor(pkg, newName()).extractOneOf(oneOf)
                     `$ref` != null -> SchemaExtractor(pkg, key ?: name).extractReferenceFrom(`$ref`)
                     else -> when (SchemaType.from(type)) {

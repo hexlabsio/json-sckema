@@ -20,7 +20,7 @@ class SckemaTest {
 
     @Test
     fun `do something`() {
-        val sckemas = SckemaResolver { loadFile("azure.json").resolve() }.flatMap { sckema ->
+        val sckemas = SckemaResolver { loadFile("siren.json").resolve() }.flatMap { sckema ->
             Transpiler { sckema.transpile() }
         }
         sckemas.forEach { it.writeTo(File("out/production/generated-sources")) }
