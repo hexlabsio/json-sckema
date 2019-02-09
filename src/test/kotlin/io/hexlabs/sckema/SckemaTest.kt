@@ -1,5 +1,8 @@
 package io.hexlabs.sckema
 
+import com.fasterxml.jackson.annotation.JsonAnyGetter
+import com.fasterxml.jackson.annotation.JsonAnySetter
+import com.fasterxml.jackson.annotation.JsonIgnore
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
 import org.junit.Test
@@ -44,7 +47,7 @@ class SckemaTest {
             "two" to SckemaType.IntegerType,
             "three" to SckemaType.NumberType,
             "four" to SckemaType.BooleanType,
-            "five" to SckemaType.Reference("five", "#/definitions/otherType", "/definitions/otherType"),
+            "five" to SckemaType.Reference("five", "#/definitions/otherType"),
             "six" to SckemaType.RemoteReference("six", "http://other.type")
         ))) { sckema.types[0] }
     }

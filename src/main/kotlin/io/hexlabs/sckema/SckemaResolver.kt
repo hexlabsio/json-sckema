@@ -9,16 +9,16 @@ data class SckemaClassName(val pkg: String, val name: String)
 class SckemaResolver {
 
     private val defaultNameResolver = { schema: JsonSchema ->
-        schema.`$id`?.substringBeforeLast("#")?.let {
+        (schema.`$id` ?: schema.id)?.substringBeforeLast("#")?.let {
             val parts = it.substringAfter("://").split("/").map { part -> part.escape() }
             val reverseDomain = parts[0].split(".").reversed().map { part -> part.escape() }.joinToString(".")
-            val others = parts.subList(1, parts.size - 1).joinToString(".")
+            val others = parts.subList(1, parts.size - 1).joinToString(".").let { if(it.isEmpty()) null else it }
             val name = parts.last().substringBefore(".json").split(".").map { part -> part.escape() }
             val packageParts = name.dropLast(1).joinToString(".").let { part -> if (part.isEmpty()) null else part.decapitalize() }
             val pkg = listOfNotNull(reverseDomain, others, packageParts).joinToString(".")
             val className = name.last().capitalize()
-            SckemaClassName(pkg, className)
-        } ?: SckemaClassName("com.sckema.unknown", "Unknown")
+            SckemaClassName(pkg, schema.title ?: className)
+        } ?: SckemaClassName("com.sckema.unknown", schema.title ?: "Unknown")
     }
 
     fun JsonSchema.resolve(nameResolver: (JsonSchema) -> SckemaClassName = defaultNameResolver) = nameResolver(this).run {

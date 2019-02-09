@@ -25,7 +25,7 @@ sealed class SchemaType(val types: JsonTypes) {
 sealed class SckemaType {
     data class JsonClass(val pkg: String, val name: String, val properties: Map<String, SckemaType>, val additionalProperties: SckemaType? = null) : SckemaType()
     data class EnumType(val pkg: String, val name: String, val values: List<String>) : SckemaType()
-    data class Reference(val key: String, val reference: String, val canonicalReference: String) : SckemaType()
+    data class Reference(val key: String, val reference: String, var resolvedType: SckemaType? = null) : SckemaType()
     data class RemoteReference(val key: String, val reference: String, var resolvedType: SckemaType? = null) : SckemaType()
     data class ListType(val types: List<SckemaType>) : SckemaType()
     data class AllOf(val types: List<SckemaType>) : SckemaType()

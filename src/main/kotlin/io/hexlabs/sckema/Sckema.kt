@@ -12,16 +12,11 @@ data class Sckema(val id: String, val types: List<SckemaType>, val references: M
         val classPool = mutableListOf<SckemaType>()
         private val references = mutableMapOf<String, SckemaType>()
         val remoteReferences = mutableListOf<SckemaType.RemoteReference>()
+        val localReferences = mutableListOf<SckemaType.Reference>()
 
         fun findReference(reference: String) = referenceList.find { it.findReference(reference) != null }?.findReference(reference)
 
         fun build() = Sckema(id, classPool, references, remoteReferences)
-
-        private val uriRegex = Regex("^(([^:/?#]+):)?(//([^/?#]*))?([^?#]*)(\\?([^#]*))?(#(.*))?")
-
-        private fun nameFromId(location: String) = if (uriRegex.matches(location)) {
-            location.substringAfterLast("/").substringBefore(".json").split(".").last()
-        } else null
 
         private fun nameFrom(pkg: String, key: String) = key.capitalize().let { candidate ->
             names["$pkg.$candidate"] = (names["$pkg.$candidate"] ?: 0) + 1
@@ -32,9 +27,14 @@ data class Sckema(val id: String, val types: List<SckemaType>, val references: M
 
         fun JsonSchema.extract(pkg: String, name: String): SckemaType {
             this@Extractor.id = (`$id` ?: id)?.substringBeforeLast("#") ?: ""
-            return SchemaExtractor(pkg, (`$id` ?: id)?.let { nameFromId(it) } ?: name).run {
+            return SchemaExtractor(pkg, name).run {
                 references.putAll(otherProperties.flatMap { (propKey, propValue) -> propValue.map { (key, value) -> "#/$propKey/$key" to value.extract(key) } })
-                extract()
+                extract().also { root ->
+                    localReferences.forEach {
+                        if(it.reference == "#") it.resolvedType = root
+                        else it.resolvedType = references[it.reference]
+                    }
+                }
             }
         }
 
@@ -49,7 +49,7 @@ data class Sckema(val id: String, val types: List<SckemaType>, val references: M
                     `$ref` != null -> SchemaExtractor(pkg, key ?: name).extractReferenceFrom(`$ref`)
                     else -> when (SchemaType.from(type)) {
                         is SchemaType.OBJECT -> SchemaExtractor(pkg, newName()).extractObjectFrom(this)
-                        is SchemaType.ARRAY -> SchemaExtractor(pkg, newName()).extractArrayFrom(this)
+                        is SchemaType.ARRAY -> SchemaExtractor(pkg, (key ?: name) + "Item").extractArrayFrom(this)
                         is SchemaType.STRING -> if (enum != null) SckemaType.EnumType(pkg, newName(), enum) else SckemaType.StringType.from(this)
                         is SchemaType.BOOLEAN -> SckemaType.BooleanType
                         is SchemaType.INTEGER -> SckemaType.IntegerType
@@ -70,7 +70,7 @@ data class Sckema(val id: String, val types: List<SckemaType>, val references: M
             private fun extractArrayFrom(schema: JsonSchema): SckemaType = SckemaType.ListType(schema.items?.schemas.orEmpty().map { it.extract("${name}Item") })
 
             private fun extractReferenceFrom(reference: String): SckemaType =
-                if (reference.startsWith("#")) SckemaType.Reference(name, reference, id + reference)
+                if (reference.startsWith("#")) SckemaType.Reference(name, reference).also { localReferences.add(it) }
                 else findReference(reference) ?: SckemaType.RemoteReference(name, reference).also { remoteReferences.add(it) }
 
             private fun extractAllOf(schemas: List<JsonSchema>): SckemaType = SckemaType.AllOf(schemas.map { it.extract(name) })

@@ -21,11 +21,16 @@ class Transpiler {
         is SckemaType.BooleanType -> Boolean::class.asTypeName()
         is SckemaType.NumberType -> BigDecimal::class.asTypeName()
         is SckemaType.IntegerType -> Int::class.asTypeName()
+        is SckemaType.Reference -> resolvedType.let {
+            with(resolvedType) { when(this) {
+                is SckemaType.JsonClass -> ClassName(pkg, name)
+                else -> resolvedType?.transpile()
+            } }
+        }
         else -> Any::class.asTypeName()
     }
 
     fun SckemaType.JsonClass.transpile() = FileSpec.get(pkg, TypeSpec.classBuilder(name)
-        .addModifiers(KModifier.DATA)
         .parameters(this.properties.mapNotNull { (key, value) -> value.transpile()?.let { key to it } })
         .add(additionalProperties)
         .build()
@@ -44,17 +49,17 @@ class Transpiler {
         additionalProperties?.let {
             it.transpile()?.let { type ->
                 addProperty(
-                    PropertySpec.builder("additionalProperties", MutableMap::class.ofType(String::class.type(), type))
+                    PropertySpec.builder("additionalProperties", Map::class.ofType(String::class.type(), type))
                         .addModifiers(KModifier.PRIVATE)
                         .addAnnotation(JsonIgnore::class)
-                        .initializer("mutableMapOf()")
+                        .initializer("mapOf()")
                         .build()
                 )
                 addFunction(FunSpec.builder("set")
                     .addAnnotation(JsonAnySetter::class)
                     .addParameter("name", String::class)
                     .addParameter("value", type)
-                    .addStatement("additionalProperties[name] = value")
+                    .addStatement("additionalProperties.toMutableMap()[name] = value")
                     .build()
                 )
                 addFunction(FunSpec.builder("additionalProperties")
