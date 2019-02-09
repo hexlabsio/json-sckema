@@ -14,25 +14,18 @@ class SckemaTest {
     private fun loadFile(name: String) = loadSckema(SckemaTest::class.java.classLoader.getResource(name).readText())
 
     private fun String.type() = JsonTypes(listOf(this))
-    private inline fun <reified T> primitive() = JsonSchema(type = JsonTypes(listOf(when(T::class) {
-        String::class -> "string"
-        Int::class -> "integer"
-        BigDecimal::class -> "number"
-        Boolean::class -> "boolean"
-        else -> "unknown"
-    })))
 
     @Test
     fun `do something`() {
-        val sckemas = SckemaResolver { loadFile("azure.json").resolve() }.flatMap {
-            Transpiler().transpile(it)
+        val sckemas = SckemaResolver { loadFile("azure.json").resolve() }.flatMap { sckema ->
+            Transpiler { sckema.transpile() }
         }
         sckemas.forEach { it.writeTo(File("out/production/generated-sources")) }
     }
 
     @Test
     fun `should build simple type from primitives`() {
-        val sckema = Sckema {
+        val sckema = Sckema.Extractor {
             JsonSchema(
                 type = "object".type(),
                 properties = JsonDefinitions(mapOf(
@@ -54,6 +47,13 @@ class SckemaTest {
             "five" to SckemaType.Reference("five", "#/definitions/otherType", "/definitions/otherType"),
             "six" to SckemaType.RemoteReference("six", "http://other.type")
         ))) { sckema.types[0] }
-
     }
 }
+
+inline fun <reified T : Any> primitive() = JsonSchema(type = JsonTypes(listOf(when (T::class) {
+    String::class -> "string"
+    Int::class -> "integer"
+    BigDecimal::class -> "number"
+    Boolean::class -> "boolean"
+    else -> "unknown"
+})))

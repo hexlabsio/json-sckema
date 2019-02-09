@@ -8,8 +8,6 @@ data class SckemaClassName(val pkg: String, val name: String)
 
 class SckemaResolver {
 
-    private fun String.escape() = replace("-","_").replace(Regex("[^a-zA-Z.0-9_]"), "").let { if(!it[0].isLetter()) "v$it" else it }
-
     private val defaultNameResolver = { schema: JsonSchema ->
         schema.`$id`?.substringBeforeLast("#")?.let {
             val parts = it.substringAfter("://").split("/").map { part -> part.escape() }
@@ -24,16 +22,16 @@ class SckemaResolver {
     }
 
     fun JsonSchema.resolve(nameResolver: (JsonSchema) -> SckemaClassName = defaultNameResolver) = nameResolver(this).run {
-        Sckema { extract(pkg, name) }
+        Sckema.Extractor { extract(pkg, name) }
     }.let { sckema ->
         resolve(listOf(sckema), sckema.remoteReferences.map { it.reference }, nameResolver)
     }
 
-    private fun resolve(sckemas: List<Sckema>, unresolved: List<String>, nameResolver: (JsonSchema) -> SckemaClassName): List<Sckema>{
+    private fun resolve(sckemas: List<Sckema>, unresolved: List<String>, nameResolver: (JsonSchema) -> SckemaClassName): List<Sckema> {
         val newSckemas = unresolved.map { it.substringBefore("#") }
             .toSet()
             .fold(sckemas) { acc, unresolvedFile ->
-                acc + Sckema(sckemas) {
+                acc + Sckema.Extractor(sckemas) {
                     jacksonObjectMapper().forSckema().readValue<JsonSchema>(URL(unresolvedFile).readText())
                         .copy(`$id` = "$unresolvedFile#")
                         .run { nameResolver(this).let { extract(it.pkg, it.name) } }
@@ -42,15 +40,16 @@ class SckemaResolver {
         val leftovers = newSckemas.flatMap {
             it.remoteReferences.filter { it.resolvedType == null }.mapNotNull { remoteReference ->
                 val existing = newSckemas.find { it.findReference(remoteReference.reference) != null }?.findReference(remoteReference.reference)
-                if(existing != null) {
+                if (existing != null) {
                     remoteReference.resolvedType = existing
                     null
                 } else remoteReference.reference
             }
         }
-        return if(leftovers.isEmpty()) newSckemas else resolve(newSckemas, leftovers, nameResolver)
+        return if (leftovers.isEmpty()) newSckemas else resolve(newSckemas, leftovers, nameResolver)
     }
     companion object {
         operator fun <R> invoke(resolver: SckemaResolver.() -> R) = SckemaResolver().run(resolver)
+        fun String.escape() = replace("-", "_").replace(Regex("[^a-zA-Z.0-9_]"), "").let { if (!it[0].isLetter()) "v$it" else it }
     }
 }
