@@ -59,12 +59,19 @@ data class Sckema(val id: String, val types: List<SckemaType>, val references: M
                 }
             }
 
-            private fun extractObjectFrom(schema: JsonSchema): SckemaType = schema.properties?.definitions.orEmpty()
+            private fun extractObjectFrom(schema: JsonSchema): SckemaType =
+                schema.properties?.definitions
+                    .orEmpty()
                     .filter { it.value is JsonSchema }
                     .map { it.key to (it.value as JsonSchema).extract(it.key) }
-                    .let { properties ->
-                        val additionalProperties = schema.additionalProperties.let { if (it.include) it.type?.extract() ?: SckemaType.AnyType else null }
-                        SckemaType.JsonClass(pkg, name, properties.toMap(), additionalProperties).also { classPool.add(it) }
+                    .toMap().let { properties ->
+                        SckemaType.JsonClass(
+                            pkg = pkg,
+                            name = name,
+                            properties = properties,
+                            requiredProperties = schema.required.orEmpty().toSet(),
+                            additionalProperties = schema.additionalProperties.let { if (it.include) it.type?.extract() ?: SckemaType.AnyType else null }
+                        ).also { classPool.add(it) }
                     }
 
             private fun extractArrayFrom(schema: JsonSchema): SckemaType = SckemaType.ListType(schema.items?.schemas.orEmpty().map { it.extract("${name}Item") })
