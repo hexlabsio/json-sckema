@@ -30,6 +30,7 @@ class Transpiler {
         is SckemaType.NumberType -> BigDecimal::class.asTypeName()
         is SckemaType.IntegerType -> Int::class.asTypeName()
         is SckemaType.ListType -> transpile()
+        is SckemaType.ClassRef -> ClassName(pkg, name)
         is SckemaType.AllOf -> {
             if(types.size == 1) types.first().transpile()
             else transpile()
@@ -51,6 +52,7 @@ class Transpiler {
     private fun SckemaType.JsonClass.transpile() = ClassName(pkg, name).let {
         if (!typeMappings.contains(it)) append(
             TypeSpec.classBuilder(name)
+                .apply { description?.let { addKdoc(it) } }
                 .parameters(this.properties.mapNotNull { (key, value) -> key to value.transpile() })
                 .add(additionalProperties)
                 .build(),
@@ -63,8 +65,8 @@ class Transpiler {
         TypeSpec.enumBuilder(name)
             .parameters(listOf("value" to String::class.asTypeName()))
             .apply { values.forEach { value ->
-                addEnumConstant(SckemaResolver.run { value.escape().toUpperCase() }, TypeSpec.anonymousClassBuilder()
-                    .addSuperclassConstructorParameter("%S", value).build())
+                //addEnumConstant(SckemaResolver.run { value.escape().toUpperCase() }, TypeSpec.anonymousClassBuilder()
+                  //  .addSuperclassConstructorParameter("%S", value).build())
             } }
             .build(),
         pkg, name

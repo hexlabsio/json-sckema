@@ -45,10 +45,10 @@ data class JsonSchema(
     val allOf: List<JsonSchema>? = null,
     val anyOf: List<JsonSchema>? = null,
     val metadata: Map<String, String>? = null,
-    @JsonIgnore val otherProperties: MutableMap<String, Map<String, JsonSchema>> = mutableMapOf()
+    @JsonIgnore val otherProperties: MutableMap<String, JsonSchema> = mutableMapOf()
 ) : JsonOrStringDefinition {
-    @JsonAnySetter @JsonDeserialize(using = AnyDeserializer::class) fun set(name: String, value: Any?) {
-        if (value != null && value is Map<*, *>) otherProperties[name] = value as Map<String, JsonSchema>
+    @JsonAnySetter fun set(name: String, value: JsonSchema) {
+        otherProperties[name] = value
     }
 }
 

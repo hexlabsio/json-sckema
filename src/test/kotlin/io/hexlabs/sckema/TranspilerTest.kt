@@ -14,7 +14,7 @@ import io.hexlabs.sckema.Transpiler.Companion.type
 class TranspilerTest {
 
     @Test fun `should create type with no properties`() {
-        transpile(JsonSchema(additionalProperties = AdditionalProperties(include = false)), pkg = "a", name = "B") {
+        transpile(JsonSchema(id = "http://a", title = "B", additionalProperties = AdditionalProperties(include = false))) {
             shouldHaveOneFileAndType(pkg = "a").run {
                 expect("B") { name }
                 expect(0, "Expected no properties") { propertySpecs.size }
@@ -44,12 +44,13 @@ class TranspilerTest {
             properties = JsonDefinitions(mapOf("baz" to primitive<String>()))
         )
         val foo = JsonSchema(
+            `$id` = "http://foobarbaz.com",
             title = "Foo",
             additionalProperties = AdditionalProperties(include = false),
             properties = JsonDefinitions(mapOf("fooBar" to JsonSchema(`$ref` = "#/definitions/Bar"))),
-            otherProperties = mutableMapOf("definitions" to mapOf("Bar" to bar))
+            otherProperties = mutableMapOf("definitions" to JsonSchema(otherProperties = mutableMapOf("Bar" to bar)))
         )
-        val files = Transpiler { Sckema.Extractor { foo.extract("com.foobarbaz", "Foo") }.transpile() }
+        val files = Transpiler { Sckema.Extractor { foo.extract() }.flatMap { it.transpile() } }
         expect(2) { files.size }
         expect(
             """package com.foobarbaz
@@ -72,7 +73,7 @@ class TranspilerTest {
         typeName: TypeName = Any::class.type(),
         fullSchemaOverride: JsonSchema = JsonSchema(additionalProperties = AdditionalProperties(include = true, type = schemaType))
     ) {
-        transpile(fullSchemaOverride, pkg = "a", name = "B") {
+        transpile(fullSchemaOverride.copy(`$id` = "http://a", title = "B")) {
             shouldHaveOneFileAndType(pkg = "a").run {
                 expect("B") { name }
                 expect(1, "Expected 1 property") { propertySpecs.size }
@@ -112,14 +113,14 @@ class TranspilerTest {
         }
     }
 
-    private fun transpile(schema: JsonSchema, pkg: String = "a", name: String = "B", fileSpecs: List<FileSpec>.() -> Unit) {
+    private fun transpile(schema: JsonSchema, fileSpecs: List<FileSpec>.() -> Unit) {
         Transpiler {
-            val files = Sckema.Extractor { schema.extract(pkg = pkg, name = name) }.transpile().apply(fileSpecs)
+            Sckema.Extractor { schema.extract() }.flatMap { it.transpile() }.apply(fileSpecs)
         }
     }
 
     private inline fun <reified T : Any> matchesPrimitive() { Transpiler {
-        val files = singlePropertySckema<T>("abc").transpile()
+        val files = singlePropertySckema<T>("abc").flatMap { it.transpile() }
         expect(T::class.asTypeName()) { (files.first().members.first() as TypeSpec).propertySpecs.first().type }
     } }
 
@@ -127,7 +128,7 @@ class TranspilerTest {
         JsonSchema(
             type = JsonTypes(listOf("object")),
             properties = JsonDefinitions(mapOf(name to primitive<T>()))
-        ).extract("a", "B")
+        ).extract()
     }
 
     private fun List<FileSpec>.shouldHaveOneFileAndType(pkg: String): TypeSpec {
