@@ -17,10 +17,8 @@ class SckemaTest {
 
     @Test
     fun `do something`() {
-        val sckemas = Sckema.Extractor { loadFile("siren.json").extract() }.flatMap { sckema ->
-            Transpiler { sckema.transpile() }
-        }
-        sckemas.forEach { it.writeTo(File("out/production/generated-sources")) }
+        val sckema = Sckema.Extractor { Transpiler { loadFile("siren.json").extract().transpile()  } }
+        sckema.forEach { it.writeTo(File("out/production/generated-sources")) }
     }
 
     @Test
@@ -67,7 +65,7 @@ class SckemaTest {
                     "five" to JsonSchema(`$ref` = "#/definitions/otherType")
                 ))
             ).extract()
-        }.first()
+        }
         expect(SckemaType.JsonClass("com.sckema", "Parent", additionalProperties = SckemaType.AnyType,
             properties = mapOf(
                 "one" to SckemaType.StringType(),
@@ -75,7 +73,7 @@ class SckemaTest {
                 "three" to SckemaType.NumberType,
                 "four" to SckemaType.BooleanType,
                 "five" to SckemaType.ClassRef("com.sckema", "OtherType")
-            ))) { sckema.types.first() }
+            ))) { sckema.first() }
     }
 
     @Test
@@ -88,9 +86,9 @@ class SckemaTest {
                 description = "I am a description",
                 additionalProperties = AdditionalProperties(include = false)
             ).extract()
-        }.first()
-        expect(1, "Expected one type") { sckema.types.size }
-        with(sckema.types.first() as SckemaType.JsonClass) {
+        }
+        expect(1, "Expected one type") { sckema.size }
+        with(sckema.first() as SckemaType.JsonClass) {
             expect("TestType") { name }
             expect("com.def.abc.other") { pkg }
             expect("I am a description") { description }
@@ -105,11 +103,32 @@ class SckemaTest {
                 type = "object".type(),
                 additionalProperties = AdditionalProperties(include = false)
             ).extract()
-        }.first()
-        expect(1, "Expected one type") { sckema.types.size }
-        with(sckema.types.first() as SckemaType.JsonClass) {
+        }
+        expect(1, "Expected one type") { sckema.size }
+        with(sckema.first() as SckemaType.JsonClass) {
             expect("Part") { name }
             expect("com.def.abc.other") { pkg }
+        }
+    }
+
+    @Test
+    fun `should resolve subobject name from key`() {
+        val types = Sckema.Extractor {
+            JsonSchema(
+                title = "Foo",
+                type = "object".type(),
+                properties = JsonDefinitions(mapOf(
+                    "bar" to JsonSchema(additionalProperties = AdditionalProperties(include = false))
+                )),
+                additionalProperties = AdditionalProperties(include = false)
+            ).extract()
+        }
+        expect(2, "Expected one type") { types.size }
+        with(types.first() as SckemaType.JsonClass) {
+            expect("Bar") { name }
+        }
+        with(types[1] as SckemaType.JsonClass) {
+            expect("Foo") { name }
         }
     }
 
@@ -125,9 +144,9 @@ class SckemaTest {
                     "abc" to JsonSchema(`$ref` = "#")
                 ))
             ).extract()
-        }.first()
-        expect(1, "Expected one type") { sckema.types.size }
-        with(sckema.types.first() as SckemaType.JsonClass) {
+        }
+        expect(1, "Expected one type") { sckema.size }
+        with(sckema.first() as SckemaType.JsonClass) {
             expect("TestType") { name }
             expect("com.def.abc.other") { pkg }
             expect(1) { properties.size }
@@ -172,17 +191,67 @@ class SckemaTest {
         ).verifySimpleObjectReference()
     }
 
+    @Test fun `should resolve array property`() {
+        val sckema = Sckema.Extractor { JsonSchema(
+            id = "http://a.b.com",
+            title = "Foo",
+            additionalProperties = AdditionalProperties(include = false),
+            properties = JsonDefinitions(mapOf("fooBar" to JsonSchema(type = "array".type(), items = JsonItems(listOf(primitive<String>())))))
+        ).extract() }
+        with(sckema) {
+            expect(1) { size }
+            with(first() as SckemaType.JsonClass) {
+                expect(1) { properties.size }
+                with(properties["fooBar"]) {
+                    expect(true) { this is SckemaType.ListType }
+                    with(this as SckemaType.ListType) {
+                        expect(1) { types.size }
+                        expect(true) { types.first() is SckemaType.StringType }
+                    }
+                }
+            }
+        }
+    }
+
+    @Test fun `should resolve remote type`() {
+        val rootSchema = JsonSchema(
+            id = "http://a.b.com/Foo",
+            additionalProperties = AdditionalProperties(include = false),
+            properties = JsonDefinitions(mapOf(
+                "bar" to JsonSchema(`$ref` = "http://a.b.com/Bar")
+            ))
+        )
+        val remoteSchema = JsonSchema(
+            id = "http://c.d.com/Bar",
+            additionalProperties = AdditionalProperties(include = false)
+        )
+        val types = Sckema.Extractor {
+            rootSchema.extract(urlResolver = {remoteSchema})
+        }
+        expect(2) { types.size }
+        with(types.first() as SckemaType.JsonClass) {
+            expect("Foo") { name }
+            expect("com.b.a") { pkg }
+            expect(SckemaType.ClassRef("com.d.c", "Bar")) { properties["bar"] }
+        }
+
+        with(types[1] as SckemaType.JsonClass) {
+            expect("Bar") { name }
+            expect("com.d.c") { pkg }
+        }
+    }
+
+
+
     private fun JsonSchema.verifySimpleObjectReference(){
-        val sckemas = Sckema.Extractor { extract() }
-        expect(1) { sckemas.size }
-        with(sckemas.first()) {
-            expect(2) { types.size }
-            with(types.first() as SckemaType.JsonClass) {
+        with(Sckema.Extractor { extract() }) {
+            expect(2) { size }
+            with(first() as SckemaType.JsonClass) {
                 expect("Bar") { name }
                 expect(1) { properties.size }
                 expect(io.hexlabs.sckema.SckemaType.StringType()) { properties["baz"] }
             }
-            with(types[1] as SckemaType.JsonClass) {
+            with(get(1) as SckemaType.JsonClass) {
                 expect("Foo") { name }
                 expect(1) { properties.size }
                 expect(io.hexlabs.sckema.SckemaType.ClassRef("com.b.a", "Bar")) { properties["fooBar"] }

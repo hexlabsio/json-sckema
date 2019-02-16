@@ -10,6 +10,10 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize
 import com.fasterxml.jackson.databind.module.SimpleModule
+import com.fasterxml.jackson.databind.node.JsonNodeType
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import com.fasterxml.jackson.module.kotlin.readValue
+import com.sun.tools.extcheck.Main.MISSING
 import java.math.BigDecimal
 
 @JsonIgnoreProperties(ignoreUnknown = true)
@@ -47,8 +51,10 @@ data class JsonSchema(
     val metadata: Map<String, String>? = null,
     @JsonIgnore val otherProperties: MutableMap<String, JsonSchema> = mutableMapOf()
 ) : JsonOrStringDefinition {
-    @JsonAnySetter fun set(name: String, value: JsonSchema) {
-        otherProperties[name] = value
+    @JsonAnySetter fun set(name: String, value: Any?) {
+        if(value is Map<*,*> && value.isNotEmpty() && value.all { it.value is JsonSchema }) {
+            otherProperties[name] = JsonSchema(otherProperties = value.map { (key, value) -> key.toString() to value as JsonSchema }.toMap().toMutableMap())
+        }
     }
 }
 
@@ -115,6 +121,8 @@ class ItemsDeserializer : JsonDeserializer<JsonItems>() {
         return JsonItems(schemas.map { codec.treeToValue(it, JsonSchema::class.java) })
     }
 }
+
+val defaultObjectMapper = jacksonObjectMapper().forSckema()
 
 fun ObjectMapper.forSckema() = registerModule(SimpleModule().apply {
     addDeserializer(JsonDefinitions::class.java, DefinitionsDeserializer())

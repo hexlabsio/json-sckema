@@ -1,14 +1,14 @@
-import io.hexlabs.sckema.Sckema
 
-//package io.hexlabs.sckema
+
+// package io.hexlabs.sckema
 //
-//import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-//import com.fasterxml.jackson.module.kotlin.readValue
-//import java.net.URL
+// import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+// import com.fasterxml.jackson.module.kotlin.readValue
+// import java.net.URL
 //
-//data class SckemaClassName(val pkg: String, val name: String)
+// data class SckemaClassName(val pkg: String, val name: String)
 //
-//class SckemaResolver {
+// class SckemaResolver {
 //
 
 //
@@ -19,4 +19,4 @@ import io.hexlabs.sckema.Sckema
 //        operator fun <R> invoke(resolver: SckemaResolver.() -> R) = SckemaResolver().run(resolver)
 //
 //    }
-//}
+// }

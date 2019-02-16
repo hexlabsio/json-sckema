@@ -5,6 +5,7 @@ import com.fasterxml.jackson.annotation.JsonAnySetter
 import com.fasterxml.jackson.annotation.JsonIgnore
 import com.squareup.kotlinpoet.*
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
+import sun.text.normalizer.UTF16.append
 import java.math.BigDecimal
 import kotlin.reflect.KClass
 
@@ -13,7 +14,7 @@ class Transpiler {
     private val fileMappings: MutableMap<Pair<String, String>, TypeName> = mutableMapOf()
     private val typeMappings: MutableMap<TypeName, TypeSpec> = mutableMapOf()
 
-    fun Sckema.transpile(): List<FileSpec> = types.forEach { it.transpile() }.let { fileMappings.map {
+    fun List<SckemaType>.transpile(): List<FileSpec> = forEach { it.transpile() }.let { fileMappings.map {
             (name, typeName) -> FileSpec.get(name.first, typeMappings[typeName]!!)
     } }
 
@@ -32,18 +33,18 @@ class Transpiler {
         is SckemaType.ListType -> transpile()
         is SckemaType.ClassRef -> ClassName(pkg, name)
         is SckemaType.AllOf -> {
-            if(types.size == 1) types.first().transpile()
+            if (types.size == 1) types.first().transpile()
             else transpile()
         }
         is SckemaType.AnyOf -> {
-            if(types.size == 1) types.first().transpile()
+            if (types.size == 1) types.first().transpile()
             else transpile()
         }
         is SckemaType.OneOf -> {
-            if(types.size == 1) types.first().transpile()
+            if (types.size == 1) types.first().transpile()
             else transpile()
         }
-        is SckemaType.Reference -> if(reference == "#")
+        is SckemaType.Reference -> if (reference == "#")
             (resolvedType as SckemaType.JsonClass).let { ClassName(it.pkg, it.name) }
             else resolvedType?.transpile() ?: Any::class.asTypeName()
         else -> Any::class.asTypeName()
@@ -52,7 +53,7 @@ class Transpiler {
     private fun SckemaType.JsonClass.transpile() = ClassName(pkg, name).let {
         if (!typeMappings.contains(it)) append(
             TypeSpec.classBuilder(name)
-                .apply { description?.let { addKdoc(it) } }
+                .apply { description?.let { addKdoc("%S", it) } }
                 .parameters(this.properties.mapNotNull { (key, value) -> key to value.transpile() })
                 .add(additionalProperties)
                 .build(),
@@ -65,7 +66,7 @@ class Transpiler {
         TypeSpec.enumBuilder(name)
             .parameters(listOf("value" to String::class.asTypeName()))
             .apply { values.forEach { value ->
-                //addEnumConstant(SckemaResolver.run { value.escape().toUpperCase() }, TypeSpec.anonymousClassBuilder()
+                // addEnumConstant(SckemaResolver.run { value.escape().toUpperCase() }, TypeSpec.anonymousClassBuilder()
                   //  .addSuperclassConstructorParameter("%S", value).build())
             } }
             .build(),
@@ -74,7 +75,7 @@ class Transpiler {
 
     private fun SckemaType.ListType.transpile(): TypeName {
         val typeNames = types.map { it.transpile() }
-        return if(typeNames.size == 1)
+        return if (typeNames.size == 1)
             List::class.ofType(typeNames.first())
         else Any::class.type()
     }
@@ -86,16 +87,17 @@ class Transpiler {
     )
 
     private fun SckemaType.OneOf.transpile(): TypeName = append(
-        TypeSpec.classBuilder(name)
+
+        TypeSpec.classBuilder(if(name == "package") "`$name`" else name)
             .build(),
         pkg, name
     )
 
     private fun SckemaType.AllOf.transpile(): TypeName {
-        return if(!types.any { it.primitive }) {
+        return if (!types.any { it.primitive || it is SckemaType.RemoteReference }) {
             val typeNames = types.map { it.transpile() }
             val typeSpecs = typeNames.mapIndexed { index, typeName ->
-                if(index == 0) typeMappings[typeName] = typeMappings[typeName]!!.open()
+                if (index == 0) typeMappings[typeName] = typeMappings[typeName]!!.open()
                 typeMappings[typeName]!!
             }
             val ancestor = typeNames.first()
@@ -107,8 +109,7 @@ class Transpiler {
                     .build(),
                 pkg, name
             )
-        }
-        else Any::class.asTypeName()
+        } else Any::class.asTypeName()
     }
 
     private fun TypeSpec.Builder.add(additionalProperties: SckemaType?) = apply {
@@ -155,7 +156,7 @@ class Transpiler {
         operator fun <R> invoke(transpile: Transpiler.() -> R) = Transpiler().run(transpile)
 
         fun KClass<*>.type() = asTypeName()
-        //fun KClass<*>.ofType(vararg types: KClass<*>) = type().parameterizedBy(*types.map { it.type() }.toTypedArray())
+        // fun KClass<*>.ofType(vararg types: KClass<*>) = type().parameterizedBy(*types.map { it.type() }.toTypedArray())
         fun KClass<*>.ofType(vararg types: TypeName) = type().parameterizedBy(*types)
     }
 }
