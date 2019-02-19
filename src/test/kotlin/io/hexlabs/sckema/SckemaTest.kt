@@ -112,7 +112,7 @@ class SckemaTest {
     }
 
     @Test
-    fun `should resolve subobject name from key`() {
+    fun `should resolve sub object name from key`() {
         val types = Sckema.Extractor {
             JsonSchema(
                 title = "Foo",
@@ -125,7 +125,7 @@ class SckemaTest {
         }
         expect(2, "Expected one type") { types.size }
         with(types.first() as SckemaType.JsonClass) {
-            expect("Bar") { name }
+            expect("Foo.Bar") { name }
         }
         with(types[1] as SckemaType.JsonClass) {
             expect("Foo") { name }
@@ -189,6 +189,28 @@ class SckemaTest {
                 otherProperties = mutableMapOf("schemas" to JsonSchema(otherProperties = mutableMapOf("Bar" to bar)))
             ))
         ).verifySimpleObjectReference()
+    }
+
+    @Test fun `should resolve sub object when nested`() {
+        val baz = JsonSchema(
+            additionalProperties = AdditionalProperties(include = false),
+            properties = JsonDefinitions(mapOf("abc" to primitive<String>()))
+        )
+        val bar = JsonSchema(
+            additionalProperties = AdditionalProperties(include = false),
+            properties = JsonDefinitions(mapOf("baz" to baz))
+        )
+        val types = Sckema.Extractor { JsonSchema(
+            id = "http://a.b.com",
+            title = "Foo",
+            additionalProperties = AdditionalProperties(include = false),
+            properties = JsonDefinitions(mapOf("bar" to bar))
+        ).extract() }
+        expect(3) { types.size }
+        expect("Foo.Bar.Baz") { (types.first() as SckemaType.JsonClass).name }
+        expect(SckemaType.ClassRef("com.b.a", "Foo.Bar")) { (types.first() as SckemaType.JsonClass).parent }
+        expect(SckemaType.ClassRef("com.b.a", "Foo")) { (types[1] as SckemaType.JsonClass).parent }
+        expect(null) { (types[2] as SckemaType.JsonClass).parent }
     }
 
     @Test fun `should resolve array property`() {

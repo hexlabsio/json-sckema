@@ -2,8 +2,8 @@ package io.hexlabs.sckema
 
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import com.sun.tools.doclets.internal.toolkit.util.DocPath.parent
 import java.net.URL
-import java.util.*
 
 data class Sckema(val id: String, val types: List<SckemaType>) {
 
@@ -77,7 +77,7 @@ data class Sckema(val id: String, val types: List<SckemaType>) {
         }
 
 
-        internal fun JsonSchema.extract(pkg: String, name: String) = SchemaExtractor(listOf(), Info(), pkg).run { extract("#", name, name) }
+        internal fun JsonSchema.extract(pkg: String, name: String) = SchemaExtractor(listOf(), Info(), pkg).run { extractPaths("#", name) }
 
         internal data class Info(
             val remoteReferences: List<SckemaType.RemoteReference> = emptyList(),
@@ -94,10 +94,10 @@ data class Sckema(val id: String, val types: List<SckemaType>) {
 
         private class SchemaExtractor(private val resolved: List<Sckema>, val info: Info, private val pkg: String) {
 
-            internal fun JsonSchema.extract(path: String, name: String, key: String? = null): Extraction {
+            internal fun JsonSchema.extractPaths(path: String, key: String? = null): Extraction {
                 return otherProperties.toList().fold(ExtractionInfoMap(info)) { acc, (key, schema) ->
                     SchemaExtractor(resolved, acc.info, pkg)
-                        .run { schema.extract("$path/$key", name, key) }
+                        .run { schema.extractPaths("$path/$key", key) }
                         .let {
                             if (it.type is SckemaType.Type) ExtractionInfoMap(
                                 info = it.info.copy(references = it.info.references + ("$path/$key" to it.type)),
@@ -107,7 +107,7 @@ data class Sckema(val id: String, val types: List<SckemaType>) {
                 }.let { extractionInfoMap ->
                     if (this.properties?.definitions.orEmpty().isNotEmpty() || otherProperties.isEmpty())
                         SchemaExtractor(resolved, extractionInfoMap.info, pkg).run {
-                            extract(key, parent = name).let {
+                            extract(key).let {
                                 if (it.type is SckemaType.Type)
                                     it.copy(info = it.info.copy(references = it.info.references + ("" to it.type)))
                                 else it
@@ -117,16 +117,20 @@ data class Sckema(val id: String, val types: List<SckemaType>) {
                 }
             }
 
-            internal fun JsonSchema.extract(key: String? = null, parent: String): Extraction {
+            internal fun JsonSchema.extract(key: String? = null, parent: String? = null): Extraction {
                 return when {
-                    anyOf != null -> extractAnyOf(anyOf, key, parent)
-                    allOf != null -> extractAllOf(allOf, key, parent)
-                    oneOf != null -> extractOneOf(oneOf, key, parent)
-                    `$ref` != null -> extractReferenceFrom(`$ref`, parent)
+                    anyOf != null -> extractAnyOf(anyOf, key)
+                    allOf != null -> extractAllOf(allOf, key)
+                    oneOf != null -> extractOneOf(oneOf, key)
+                    `$ref` != null -> extractReferenceFrom(`$ref`, parent!!)
                     else -> when (SchemaType.from(type)) {
-                        is SchemaType.OBJECT -> extractObjectFrom(this, key)
-                        is SchemaType.ARRAY -> extractArrayFrom(this, key ?: parent)
-                        is SchemaType.STRING -> Extraction(if (enum != null) SckemaType.EnumType(pkg, key ?: parent, enum) else SckemaType.StringType.from(this), info)
+                        is SchemaType.OBJECT -> extractObjectFrom(this, key, parent)
+                        is SchemaType.ARRAY -> extractArrayFrom(this, key ?: parent!!)
+                        is SchemaType.STRING -> Extraction(
+                            if (enum != null)
+                                SckemaType.EnumType(pkg, key ?: "Unknown", if(parent?.isNotEmpty() == true){ SckemaType.ClassRef(pkg, parent) } else null, enum)
+                            else SckemaType.StringType.from(this), info
+                        )
                         is SchemaType.BOOLEAN -> Extraction(SckemaType.BooleanType, info)
                         is SchemaType.INTEGER -> Extraction(SckemaType.IntegerType, info)
                         is SchemaType.NUMBER -> Extraction(SckemaType.NumberType, info)
@@ -135,18 +139,20 @@ data class Sckema(val id: String, val types: List<SckemaType>) {
                 }
             }
 
-            private fun extractObjectFrom(schema: JsonSchema, key: String? = null): Extraction {
-                val name = (schema.title ?: key ?: "Unknown").capitalize()
-                if(name == "Unknown") {
-                    println(schema)
-                }
+            private fun extractObjectFrom(schema: JsonSchema, key: String? = null, parent: String? = null): Extraction {
+                val name = (schema.title ?: key ?: "Unknown").capitalize().let { name -> parent?.let { "$it.$name" } ?: name }
                 return schema.properties?.definitions
                     .orEmpty()
                     .filter { it.value is JsonSchema }
                     .map { it.key to it.value as JsonSchema }
                     .fold(ExtractionInfoMap(info)) { acc, (key, schema) ->
                         val extraction = SchemaExtractor(resolved, acc.info, pkg).run { schema.extract(key = key, parent = name) }
-                        ExtractionInfoMap(extraction.info, acc.types + (key to extraction.type))
+                        val subType = when(extraction.type){
+                            is SckemaType.JsonClass -> extraction.type.copy(parent = SckemaType.ClassRef(pkg, name)).ref()
+                            is SckemaType.EnumType -> extraction.type.copy(parent = SckemaType.ClassRef(pkg, name)).ref()
+                            else -> extraction.type
+                        }
+                        ExtractionInfoMap(extraction.info, acc.types + (key to subType))
                     }.let { extractionInfo ->
                         val additionalPropertyExtraction = if (schema.additionalProperties.include) {
                             schema.additionalProperties.type?.extract(null, parent = name)
@@ -156,6 +162,7 @@ data class Sckema(val id: String, val types: List<SckemaType>) {
                             name = name,
                             description = schema.description,
                             properties = extractionInfo.types,
+                            parent = parent?.let {  if(it.isNotEmpty()) SckemaType.ClassRef(pkg, parent) else null},
                             requiredProperties = schema.required.orEmpty().toSet(),
                             additionalProperties = schema.additionalProperties.let { if (it.include) (additionalPropertyExtraction?.type ?: SckemaType.AnyType) else null }
                         )
@@ -181,18 +188,18 @@ data class Sckema(val id: String, val types: List<SckemaType>) {
                         }
             }
 
-            private fun extractAllOf(schemas: List<JsonSchema>, key: String?, parent: String): Extraction {
-                val name = key ?: parent
-                return collect(key, parent, schemas).let { Extraction(SckemaType.AllOf(pkg, name, it.types), it.info) }
+            private fun extractAllOf(schemas: List<JsonSchema>, key: String?): Extraction {
+                val name = (key ?: "Unknown").capitalize()
+                return collect(key, name, schemas).let { Extraction(SckemaType.AllOf(pkg, name, it.types), it.info) }
             }
 
-            private fun extractAnyOf(schemas: List<JsonSchema>, key: String?, parent: String): Extraction {
-                val name = key ?: parent
+            private fun extractAnyOf(schemas: List<JsonSchema>, key: String?): Extraction {
+                val name = (key ?: "Unknown").capitalize()
                 return collect(key, name, schemas).let { Extraction(SckemaType.AnyOf(pkg, name, it.types), it.info) }
             }
 
-            private fun extractOneOf(schemas: List<JsonSchema>, key: String?, parent: String): Extraction {
-                val name = key ?: parent
+            private fun extractOneOf(schemas: List<JsonSchema>, key: String?): Extraction {
+                val name = (key ?: "Unknown").capitalize()
                 return collect(key, name, schemas).let { Extraction(SckemaType.OneOf(pkg, name, it.types), it.info) }
             }
         }

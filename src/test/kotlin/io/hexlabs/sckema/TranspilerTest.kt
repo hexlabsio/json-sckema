@@ -83,6 +83,52 @@ class TranspilerTest {
         ) { files[1].toString() }
     }
 
+    @Test
+    fun `should nest objects with parents`() {
+        val foo = SckemaType.JsonClass("com.b.a", "Foo", properties = mapOf(
+            "bar" to SckemaType.ClassRef("com.b.a", "Foo.Bar")
+        ))
+        val bar = SckemaType.JsonClass("com.b.a", "Foo.Bar", parent = SckemaType.ClassRef("com.b.a", "Foo"), properties = mapOf(
+            "baz" to SckemaType.ClassRef("com.b.a", "Foo.Bar.Baz")
+        ))
+        val baz = SckemaType.JsonClass("com.b.a", "Foo.Bar.Baz", parent = SckemaType.ClassRef("com.b.a", "Foo.Bar"), properties = mapOf(
+            "abc" to SckemaType.StringType()
+        ))
+        val files = Transpiler {
+            listOf(foo, bar, baz).transpile()
+        }
+        expect(1) { files.size }
+        with(files.first().members.first() as TypeSpec) {
+            expect(1) { typeSpecs.size }
+            with(typeSpecs.first()){
+                expect("Bar") { name }
+                expect(1) { typeSpecs.size }
+                with(typeSpecs.first()){
+                    expect("Baz") { name }
+                }
+            }
+        }
+    }
+
+    @Test
+    fun `should create union type when allOf`(){
+        val a = SckemaType.JsonClass("com.b.a", "A", properties = mapOf("a" to SckemaType.StringType()))
+        val b = SckemaType.JsonClass("com.b.a", "B", properties = mapOf("b" to SckemaType.StringType()))
+        val union = SckemaType.AllOf("com.b.a", "Union", types = listOf(
+                SckemaType.ClassRef("com.b.a", "A"),
+                SckemaType.ClassRef("com.b.a", "B")
+        ))
+        val files = Transpiler { listOf(a, b, union).transpile() }
+        expect(3) { files.size }
+        with(files.find { it.name == "Union" }!!.members.first() as TypeSpec){
+            expect(2) { propertySpecs.size }
+            expect("a") { propertySpecs.first().name }
+            expect("b") { propertySpecs[1].name }
+        }
+
+    }
+
+
     private fun verifyAdditionalProperties(
         schemaType: JsonSchema? = null,
         typeName: TypeName = Any::class.type(),

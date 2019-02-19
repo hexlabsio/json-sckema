@@ -22,18 +22,25 @@ sealed class SchemaType(val types: JsonTypes) {
     }
 }
 
+fun SckemaType.Type.ref() = SckemaType.ClassRef(pkg, name)
 sealed class SckemaType(val primitive: Boolean = false) {
-    abstract class Type(open val pkg: String, open val name: String) : SckemaType()
+    abstract class Type(open val pkg: String, open val name: String, open val parent: ClassRef?) : SckemaType()
     data class ClassRef(val pkg: String, val name: String) : SckemaType()
     data class JsonClass(
         override val pkg: String,
         override val name: String,
+        override val parent: ClassRef? = null,
         val description: String? = null,
         val properties: Map<String, SckemaType>,
         val requiredProperties: Set<String> = emptySet(),
         val additionalProperties: SckemaType? = null
-    ) : Type(pkg = pkg, name = name)
-    data class EnumType(override val pkg: String, override val name: String, val values: List<String>) : Type(pkg = pkg, name = name)
+    ) : Type(pkg = pkg, name = name, parent = parent)
+    data class EnumType(
+        override val pkg: String,
+        override val name: String,
+        override val parent: ClassRef? = null,
+        val values: List<String>
+    ) : Type(pkg = pkg, name = name, parent = parent)
     data class Reference(val reference: String, var resolvedType: SckemaType? = null) : SckemaType()
     data class RemoteReference(val reference: String) : SckemaType()
     data class ListType(val types: List<SckemaType>) : SckemaType()

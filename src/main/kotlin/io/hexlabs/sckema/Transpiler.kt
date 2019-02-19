@@ -5,7 +5,6 @@ import com.fasterxml.jackson.annotation.JsonAnySetter
 import com.fasterxml.jackson.annotation.JsonIgnore
 import com.squareup.kotlinpoet.*
 import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
-import sun.text.normalizer.UTF16.append
 import java.math.BigDecimal
 import kotlin.reflect.KClass
 
@@ -13,14 +12,35 @@ class Transpiler {
 
     private val fileMappings: MutableMap<Pair<String, String>, TypeName> = mutableMapOf()
     private val typeMappings: MutableMap<TypeName, TypeSpec> = mutableMapOf()
+    private val childMappings: MutableMap<TypeName, List<TypeName>> = mutableMapOf()
 
-    fun List<SckemaType>.transpile(): List<FileSpec> = forEach { it.transpile() }.let { fileMappings.map {
-            (name, typeName) -> FileSpec.get(name.first, typeMappings[typeName]!!)
+    fun List<SckemaType>.transpile(): List<FileSpec> = forEach { it.transpile() }.let {
+        fileMappings.map {
+            (name, typeName) -> FileSpec.get(name.first, typeFor(typeName))
     } }
 
-    private fun append(type: TypeSpec, pkg: String, name: String) = ClassName(pkg, name).also { typeName ->
-        fileMappings[pkg to name] = typeName
-        typeMappings[typeName] = type
+    private fun typeFor(typeName: TypeName): TypeSpec {
+        val parent = typeMappings[typeName]!!
+        return if(childMappings.contains(typeName)){
+            parent.toBuilder().apply {
+                childMappings[typeName].orEmpty().forEach { child ->
+                    addType(typeFor(child))
+                }
+            }.build()
+        } else parent
+    }
+
+    private fun append(type: TypeSpec, pkg: String, name: String, parent: SckemaType.ClassRef? = null) = if(parent != null) {
+            val parentClass = ClassName(parent.pkg, parent.name)
+            val className = ClassName(parent.pkg, name)
+            childMappings[parentClass] = childMappings[parentClass].orEmpty() + className
+            typeMappings[className] = type
+            ClassName(parent.pkg, name)
+        } else {
+        ClassName(pkg, name).also { typeName ->
+            fileMappings[pkg to name] = typeName
+            typeMappings[typeName] = type
+        }
     }
 
     private fun SckemaType.transpile(): TypeName = when (this) {
@@ -50,25 +70,24 @@ class Transpiler {
         else -> Any::class.asTypeName()
     }
 
-    private fun SckemaType.JsonClass.transpile() = ClassName(pkg, name).let {
-        if (!typeMappings.contains(it)) append(
-            TypeSpec.classBuilder(name)
-                .apply { description?.let { addKdoc("%S", it) } }
-                .parameters(this.properties.mapNotNull { (key, value) -> key to value.transpile() })
+    private fun SckemaType.JsonClass.transpile() = ClassName(pkg, name).let { className ->
+        if (typeMappings.contains(className)) className else append(
+            TypeSpec.classBuilder(name.substringAfterLast("."))
+                .apply { description?.let { addKdoc(it.replace("%", "%%")) } }
+                .parameters(properties.mapNotNull { (key, value) -> key to value.transpile() })
                 .add(additionalProperties)
                 .build(),
-            pkg, name
+            pkg, name, parent
         )
-        else it
     }
 
     private fun SckemaType.EnumType.transpile() = append(
         TypeSpec.enumBuilder(name)
             .parameters(listOf("value" to String::class.asTypeName()))
-            .apply { values.forEach { value ->
-                // addEnumConstant(SckemaResolver.run { value.escape().toUpperCase() }, TypeSpec.anonymousClassBuilder()
-                  //  .addSuperclassConstructorParameter("%S", value).build())
-            } }
+//            .apply { values.forEach { _ ->
+//                // addEnumConstant(SckemaResolver.run { value.escape().toUpperCase() }, TypeSpec.anonymousClassBuilder()
+//                  //  .addSuperclassConstructorParameter("%S", value).build())
+//            } }
             .build(),
         pkg, name
     )
@@ -100,11 +119,9 @@ class Transpiler {
                 if (index == 0) typeMappings[typeName] = typeMappings[typeName]!!.open()
                 typeMappings[typeName]!!
             }
-            val ancestor = typeNames.first()
             val properties = typeSpecs.flatMap { it.propertySpecs }
             append(
                 TypeSpec.classBuilder(name)
-                    .superclass(ancestor)
                     .parameters(properties.map { it.name to it.type })
                     .build(),
                 pkg, name
